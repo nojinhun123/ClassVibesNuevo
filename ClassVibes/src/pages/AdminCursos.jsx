@@ -4,32 +4,59 @@ import { useNavigate } from 'react-router-dom';
 
 export default function AdminCursos() {
   const [cursos, setCursos] = useState([]);
+  const [usuario, setUsuario] = useState(null);
   const navigate = useNavigate();
 
-  const cargarCursos = async () => {
-    const { data, error } = await supabase.from('cursos').select('*');
+  const cargarCursos = async (idprofesor) => {
+    if (!idprofesor) return;
+    const { data, error } = await supabase.from('cursos').select('*').eq('idprofesor', idprofesor);
     if (!error) setCursos(data);
   };
 
   const handleEliminar = async (idcurso) => {
+    if (!usuario) return;
     if (confirm('¿Estás seguro de que querés eliminar este curso?')) {
-      const { error } = await supabase.from('cursos').delete().eq('idcurso', idcurso);
-      if (!error) cargarCursos();
+      const { error } = await supabase
+        .from('cursos')
+        .delete()
+        .eq('idcurso', idcurso)
+        .eq('idprofesor', usuario.idprofesor);
+      if (!error) {
+        cargarCursos(usuario.idprofesor);
+      } else {
+        alert('No podés eliminar cursos de otro profesor.');
+      }
     }
   };
 
   const handleEditar = (idcurso) => {
-    alert(`Funcionalidad de edición aún no implementada. ID: ${idcurso}`);
+    navigate(`/admin/editar-curso/${idcurso}`);
   };
 
   useEffect(() => {
-    cargarCursos();
-  }, []);
+    const data = localStorage.getItem('usuario');
+    if (!data) {
+      navigate('/login');
+      return;
+    }
+    const parsed = JSON.parse(data);
+    if (parsed.rol !== 'profesor') {
+      navigate('/login');
+      return;
+    }
+    setUsuario(parsed);
+    cargarCursos(parsed.idprofesor);
+  }, [navigate]);
+
+  if (!usuario) return null;
 
   return (
     <div className="container py-5" style={{ backgroundColor: '#f4f4f4' }}>
       <div className="d-flex justify-content-between align-items-center mb-4">
-        <h2 className="mb-0">Lista de Cursos</h2>
+        <div>
+          <h2 className="mb-0">Lista de Cursos</h2>
+          <small className="text-muted">Profesor: {usuario.nombre}</small>
+        </div>
         <button className="btn btn-primary" onClick={() => navigate('/admin/crear-curso')}>
           Crear Nuevo Curso
         </button>

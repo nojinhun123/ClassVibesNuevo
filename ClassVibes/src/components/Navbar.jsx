@@ -7,13 +7,22 @@ export default function Navbar() {
   const [usuario, setUsuario] = useState(null);
 
   useEffect(() => {
-    const data = localStorage.getItem('usuario');
-    if (data) setUsuario(JSON.parse(data));
+    const load = () => {
+      const data = localStorage.getItem('usuario');
+      setUsuario(data ? JSON.parse(data) : null);
+    };
+    load();
+    window.addEventListener('usuario-changed', load);
+    return () => window.removeEventListener('usuario-changed', load);
   }, []);
 
   const handleUserClick = () => {
     if (usuario) {
-      alert(`Perfil: ${usuario.nombre}`);
+      if (confirm(`Cerrar sesión de ${usuario.nombre}?`)) {
+        localStorage.removeItem('usuario');
+        window.dispatchEvent(new Event('usuario-changed'));
+        navigate('/login');
+      }
     } else {
       navigate('/login');
     }
@@ -22,7 +31,7 @@ export default function Navbar() {
   return (
     <nav className="d-flex justify-content-between align-items-center px-4 py-2 border-bottom bg-white">
       {/* Logo: lleva a Home */}
-      <div style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>
+      <div style={{ cursor: 'pointer' }} onClick={() => navigate('/home')}>
         <img src="\assets\Logo.jpg" alt="ClassVibes" style={{ height: '45px' }} />
       </div>
 
@@ -31,26 +40,37 @@ export default function Navbar() {
         {/* Botones verdes más chicos */}
         <div className="d-flex gap-2">
           <Link
-            to="/"
+            to="/cursos"
             className="btn btn-success px-3 py-1 fw-bold"
             style={{ borderRadius: '0.5rem', color: 'black', fontSize: '14px' }}
           >
             Cursos
           </Link>
           <Link
-            to="/"
+            to="/profesores"
             className="btn btn-success px-3 py-1 fw-bold"
             style={{ borderRadius: '0.5rem', color: 'black', fontSize: '14px' }}
           >
             Profesores
           </Link>
-          <Link
-            to="/admin"
-            className="btn btn-success px-3 py-1 fw-bold"
-            style={{ borderRadius: '0.5rem', color: 'black', fontSize: '14px' }}
-          >
-            Admin
-          </Link>
+          {usuario?.rol !== 'admin' && (
+            <Link
+              to="/admin"
+              className="btn btn-success px-3 py-1 fw-bold"
+              style={{ borderRadius: '0.5rem', color: 'black', fontSize: '14px' }}
+            >
+              {usuario?.rol === 'profesor' ? 'Admin. Cursos' : 'Admin'}
+            </Link>
+          )}
+          {usuario?.rol === 'admin' && (
+            <Link
+              to="/admin/profesores"
+              className="btn btn-success px-3 py-1 fw-bold"
+              style={{ borderRadius: '0.5rem', color: 'black', fontSize: '14px' }}
+            >
+              Adm. Profesores
+            </Link>
+          )}
         </div>
 
         {/* Ícono usuario + buscador */}
