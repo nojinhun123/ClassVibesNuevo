@@ -85,179 +85,76 @@ export default function AdminProfesores() {
         return alert('Error al actualizar profesor: ' + error.message);
       }
     } else {
-      // Crear el profesor primero
-      const { data: profesorInserted, error: errorProfesor } = await supabase
-        .from('profesores')
-        .insert([profesorData])
-        .select()
-        .single();
-      
-      if (errorProfesor) {
-        console.error('Error al crear profesor:', errorProfesor);
-        return alert('Error al crear profesor: ' + errorProfesor.message);
-      }
+  // 1. Verificar que NO exista usuario con ese email
+  const { data: usuarioExistente, error: errorCheckUsuario } = await supabase
+    .from('usuario')
+    .select('id')
+    .eq('email', profesorData.email)
+    .maybeSingle();
 
-      // Obtener el ID del perfil "profesor" (case-insensitive)
-      const { data: perfilesData, error: errorPerfil } = await supabase
-        .from('perfiles')
-        .select('id, nombre');
+  if (errorCheckUsuario) {
+    return alert('Error al verificar usuario: ' + errorCheckUsuario.message);
+  }
 
-      if (errorPerfil) {
-        console.error('Error al obtener perfiles:', errorPerfil);
-        return alert('Error al obtener los perfiles: ' + errorPerfil.message);
-      }
+  if (usuarioExistente) {
+    return alert('Ya existe un usuario con ese email.');
+  }
 
-      const perfilData = perfilesData?.find(p => p.nombre?.toLowerCase() === 'profesor');
-      
-      if (!perfilData) {
-        console.error('No se encontró el perfil de profesor');
-        // Eliminar el profesor creado
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        return alert('Error: No se encontró el perfil "profesor" en la tabla perfiles. Asegurate de que exista.');
-      }
+  // 2. Crear usuario
+  const { data: usuarioInserted, error: errorUsuario } = await supabase
+    .from('usuario')
+    .insert([{
+      nombre: profesorData.nombre,
+      username: profesorData.email.split('@')[0],
+      contraseña: profesorData.clave,
+      email: profesorData.email,
+      fotoperfil: profesorData.fotoperfil || null,
+      fechanacimiento: null,
+      genero: null,
+      aniosecundaria: null,
+      telefono: null,
+      edad: null
+    }])
+    .select()
+    .single();
 
-      // Verificar si el email ya existe en usuarios
-      const { data: usuarioExistente, error: errorCheckUsuario } = await supabase
-        .from('usuario')
-        .select('id')
-        .eq('email', profesorData.email)
-        .maybeSingle();
+  if (errorUsuario) {
+    return alert('Error al crear usuario: ' + errorUsuario.message);
+  }
 
-      if (errorCheckUsuario) {
-        console.error('Error al verificar usuario existente:', errorCheckUsuario);
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        return alert('Error al verificar si el usuario existe: ' + errorCheckUsuario.message);
-      }
+  // 3. Obtener perfil profesor
+  const { data: perfiles } = await supabase.from('perfiles').select('*');
+  const perfilProfesor = perfiles.find(p => p.nombre.toLowerCase() === 'profesor');
 
-      if (usuarioExistente) {
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        return alert('Error: Ya existe un usuario con ese email. El profesor no fue creado.');
-      }
+  if (!perfilProfesor) {
+    await supabase.from('usuario').delete().eq('id', usuarioInserted.id);
+    return alert('No existe el perfil profesor.');
+  }
 
-      // Generar username único (usar parte del email antes del @)
-      let usernameBase = profesorData.email.split('@')[0] || profesorData.nombre.toLowerCase().replace(/\s+/g, '');
-      let username = usernameBase;
-      let contador = 1;
-      const maxIntentos = 100;
+  // 4. Asignar perfil
+  const { error: errorUsuarioPerfil } = await supabase
+    .from('usuario_perfil')
+    .insert([{
+      usuario_id: usuarioInserted.id,
+      perfil_id: perfilProfesor.id
+    }]);
 
-      // Verificar si el username ya existe y generar uno único
-      let usernameExiste = true;
-      while (usernameExiste && contador <= maxIntentos) {
-        const { data: usernameCheck } = await supabase
-          .from('usuario')
-          .select('id')
-          .eq('username', username)
-          .maybeSingle();
-        
-        if (!usernameCheck) {
-          usernameExiste = false;
-        } else {
-          username = `${usernameBase}${contador}`;
-          contador++;
-        }
-      }
+  if (errorUsuarioPerfil) {
+    await supabase.from('usuario').delete().eq('id', usuarioInserted.id);
+    return alert('Error al asignar perfil.');
+  }
 
-      if (contador > maxIntentos) {
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        return alert('Error: No se pudo generar un username único después de varios intentos.');
-      }
+  // 5. Crear profesor (AHORA sí, porque el usuario ya existe)
+  const { error: errorProfesor } = await supabase
+    .from('profesores')
+    .insert([profesorData]);
 
-      // Crear el usuario con los datos del profesor (sin ID, asumiendo auto-increment)
-      const usuarioData = {
-        nombre: profesorData.nombre,
-        username: username,
-        contraseña: profesorData.clave,
-        email: profesorData.email,
-        fotoperfil: profesorData.fotoperfil,
-        // Campos opcionales con valores por defecto
-        fechanacimiento: null,
-        genero: null,
-        aniosecundaria: null,
-        telefono: null,
-        edad: null
-      };
+  if (errorProfesor) {
+    await supabase.from('usuario').delete().eq('id', usuarioInserted.id);
+    return alert('Error al crear profesor: ' + errorProfesor.message);
+  }
+}
 
-      // Intentar crear el usuario (el ID se auto-incrementa automáticamente en Supabase)
-      let { data: usuarioInserted, error: errorUsuario } = await supabase
-        .from('usuario')
-        .insert([usuarioData])
-        .select()
-        .single();
-
-      // Si falla con duplicate key, obtener el siguiente ID disponible manualmente
-      if (errorUsuario && errorUsuario.message?.includes('duplicate key') && errorUsuario.message?.includes('usuario_pkey')) {
-        console.log('Error de clave duplicada detectado, obteniendo siguiente ID disponible...');
-        
-        // Obtener todos los IDs existentes para encontrar el siguiente disponible
-        const { data: todosUsuarios, error: errorTodos } = await supabase
-          .from('usuario')
-          .select('id')
-          .order('id', { ascending: true });
-
-        if (errorTodos) {
-          console.error('Error al obtener usuarios:', errorTodos);
-          await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-          return alert('Error al obtener los IDs de usuarios: ' + errorTodos.message);
-        }
-
-        // Encontrar el siguiente ID disponible
-        let siguienteId = 1;
-        if (todosUsuarios && todosUsuarios.length > 0) {
-          const ids = todosUsuarios.map(u => u.id).sort((a, b) => a - b);
-          // Buscar el primer hueco o usar el máximo + 1
-          for (let i = 0; i < ids.length; i++) {
-            if (ids[i] !== i + 1) {
-              siguienteId = i + 1;
-              break;
-            }
-            siguienteId = ids[ids.length - 1] + 1;
-          }
-        }
-
-        // Intentar insertar con el ID calculado
-        const usuarioDataConId = {
-          ...usuarioData,
-          id: siguienteId
-        };
-
-        const result = await supabase
-          .from('usuario')
-          .insert([usuarioDataConId])
-          .select()
-          .single();
-
-        usuarioInserted = result.data;
-        errorUsuario = result.error;
-      }
-
-      if (errorUsuario || !usuarioInserted) {
-        console.error('Error al crear usuario:', errorUsuario);
-        // Si falla la creación del usuario, eliminar el profesor creado
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        
-        // Mensaje de error más descriptivo
-        if (errorUsuario?.message?.includes('null') && errorUsuario?.message?.includes('id')) {
-          return alert('Error: El campo ID es requerido. Necesitas configurar el auto-increment en Supabase para la columna id de la tabla usuario, o contactar al administrador.');
-        }
-        return alert('Error al crear usuario: ' + (errorUsuario?.message || 'Error desconocido'));
-      }
-
-      // Crear la relación usuario_perfil para asignar el rol de profesor
-      const { error: errorUsuarioPerfil } = await supabase
-        .from('usuario_perfil')
-        .insert([{
-          usuario_id: usuarioInserted.id,
-          perfil_id: perfilData.id
-        }]);
-
-      if (errorUsuarioPerfil) {
-        console.error('Error al asignar perfil de profesor:', errorUsuarioPerfil);
-        // Si falla la asignación del perfil, eliminar usuario y profesor
-        await supabase.from('usuario').delete().eq('id', usuarioInserted.id);
-        await supabase.from('profesores').delete().eq('idprofesor', profesorInserted.idprofesor);
-        return alert('Error al asignar el perfil de profesor: ' + errorUsuarioPerfil.message);
-      }
-    }
     resetForm();
     cargarProfesores();
   };
@@ -275,14 +172,32 @@ export default function AdminProfesores() {
   };
 
   const handleEliminar = async (idprofesor) => {
-    if (!confirm('¿Eliminar profesor?')) return;
-    const { error } = await supabase.from('profesores').delete().eq('idprofesor', idprofesor);
-    if (error) {
-      alert('No se pudo eliminar');
-      return;
-    }
-    cargarProfesores();
-  };
+  if (!window.confirm('¿Eliminar profesor?')) return;
+
+  // 1. Obtener el email del profesor
+  const { data: profesor, error: errorProfesor } = await supabase
+    .from('profesores')
+    .select('email')
+    .eq('idprofesor', idprofesor)
+    .single();
+
+  if (errorProfesor || !profesor) {
+    return alert('No se pudo obtener el profesor.');
+  }
+
+  // 2. Borrar el usuario (esto dispara la cascada)
+  const { error: errorUsuario } = await supabase
+    .from('usuario')
+    .delete()
+    .eq('email', profesor.email);
+
+  if (errorUsuario) {
+    return alert('No se pudo eliminar el usuario.');
+  }
+
+  // 3. Listo: profesor + cursos + lo que dependa cae solo
+  cargarProfesores();
+};
 
   return (
     <div className="container py-5" style={{ maxWidth: '900px' }}>
